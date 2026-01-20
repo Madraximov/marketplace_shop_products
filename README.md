@@ -1,89 +1,68 @@
 # Kafka Diplom
 
-## Технические инструкции
+## Описание проекта
 
-## Шаг 1. Запуск решения через Docker Compose.
+Данный проект представляет собой распределённую аналитическую систему на базе **Apache Kafka**, предназначенную для обработки событий интернет-магазина.  
+Система реализует потоковую передачу данных между сервисами, фильтрацию данных, базовую аналитику, репликацию между Kafka-кластерами и мониторинг.
 
-docker compose --profile api up -d
-[+] Running 6/6
- ✔ Network custom_network    Created                                                                                                                              0.0s 
- ✔ Container api             Started                                                                                                                              0.8s 
- ✔ Container kafka-1         Started                                                                                                                              0.5s 
- ✔ Container kafka-2         Started                                                                                                                              0.6s 
- ✔ Container kafka-0         Started                                                                                                                              0.6s 
- ✔ Container schemaregistry
- Started                  
+Проект выполнен в рамках учебного задания и демонстрирует работу Kafka в многоброкерной конфигурации с дополнительным вторичным кластером.
 
+---
 
-docker compose logs api
-api  | INFO:root:Сгенерирован и добавлен продукт: 54028
-api  | INFO:httpx:HTTP Request: POST http://schemaregistry:8081/subjects/shop-products-value/versions?normalize=False "HTTP/1.1 200 OK"
-api  | INFO:root:KAFKA: Сообщение на отправку в топик 'shop-products' поставлено в очередь.
-api  | INFO:root:Все ожидающие сообщения успешно отправлены.
-api  | INFO:root:FILE: Данные успешно записаны в файл 'data/products.json'.
-api  | INFO:root:Сгенерирован и добавлен продукт: 35209
-api  | INFO:root:KAFKA: Сообщение на отправку в топик 'shop-products' поставлено в очередь.
-api  | INFO:root:Все ожидающие сообщения успешно отправлены.
+## Используемые технологии
 
+- Apache Kafka (KRaft mode)
+- Kafka MirrorMaker 2
+- Schema Registry
+- Apache Avro
+- Docker / Docker Compose
+- Prometheus
+- Grafana
+- Alertmanager
+- Python
 
-```bash 
-docker compose exec -it api bash
-root@api:/opt/app# python api_client.py
-\INFO:root:Успешное подключение CLIENT API к Kafka по адресу kafka-0:9092,kafka-1:9092,kafka-2:9092
-INFO:root:Успешное подключение SHOP API к Kafka по адресу kafka-0:9092,kafka-1:9092,kafka-2:9092
-INFO:root:Успешное подключение к Schema Registry по адресу http://schemaregistry:8081 и загрузка Avro схемы.
-INFO:root:Добро пожаловать в CLIENT API!
-INFO:root:Ваш идентификатор сессии: user_e4192b
+---
 
-Доступные команды:
-  1 - Поиск товара по имени
-  2 - Запросить персональные рекомендации
-  exit - Выход
-Введите команду:1
-Введите название товара для поиска: Moscow
-INFO:root:--- Поиск товара: 'Moscow' для пользователя 'user_e4192b' ---
-INFO:root:KAFKA: Сообщение на отправку в топик 'client-searches' поставлено в очередь.
+## Архитектура решения
 
-Доступные команды:
-  1 - Поиск товара по имени
-  2 - Запросить персональные рекомендации
-  exit - Выход
-Введите команду: 2
-INFO:root:--- Запрос рекомендаций для пользователя 'user_e4192b' ---
-INFO:root:KAFKA: Сообщение на отправку в топик 'client-recommendations' поставлено в очередь.
+В системе используются следующие компоненты:
 
-Доступные команды:
-  1 - Поиск товара по имени
-  2 - Запросить персональные рекомендации
-  exit - Выход
-Введите команду: exit
-INFO:root:Все ожидающие сообщения успешно отправлены.
-INFO:root:Завершение работы CLIENT API.
-root@api:/opt/app# exit
-exit
-```
+- **SHOP API**  
+  Генерирует события о товарах и отправляет их в Kafka-топик `shop-products`.
 
+- **CLIENT API**  
+  Имитирует действия пользователей:
+  - поиск товаров,
+  - запрос персональных рекомендаций.  
+  События отправляются в Kafka-топики:
+  - `client-searches`,
+  - `client-recommendations`.
 
+- **Primary Kafka Cluster**  
+  Основной Kafka-кластер, состоящий из трёх брокеров (`kafka-0`, `kafka-1`, `kafka-2`).
 
-docker compose exec kafka-0 kafka-topics.sh --bootstrap-server kafka-0:9092 --list
-__consumer_offsets
-_schemas
-client-recommendations
-client-searches
-mm2-offsets.secondary.internal
-shop-products
+- **Secondary Kafka Cluster**  
+  Вторичный Kafka-кластер, используемый для репликации данных.
 
-docker compose --profile kafka-sec up -d
-[+] Running 3/3
- ✔ Container kafka-secondary-1  Started                                                                                                                           0.7s 
- ✔ Container kafka-secondary-2  Started                                                                                                                           0.7s 
- ✔ Container kafka-secondary-0
- Started  
+- **MirrorMaker 2**  
+  Отвечает за дублирование данных между primary и secondary Kafka-кластерами.
 
+- **Schema Registry**  
+  Используется для хранения и валидации Avro-схем сообщений.
 
+- **Monitoring Stack**  
+  Prometheus, Grafana и Alertmanager используются для сбора метрик и мониторинга состояния системы.
 
-docker compose --profile kafka-mirror up -d
-[+] Running 1/1
- ✔ Container mirrormaker2
-Started         
+---
+
+## Поток данных
+
+1. SHOP API генерирует события о товарах и публикует их в топик `shop-products`.
+2. CLIENT API отправляет пользовательские действия в топики:
+   - `client-searches`,
+   - `client-recommendations`.
+3. Перед записью данных выполняется фильтрация запрещённых товаров.
+4. Отфильтрованные данные сохраняются в файл `data/products.json`.
+5. MirrorMaker 2 реплицирует данные из primary Kafka-кластера во secondary.
+6. Метрики Kafka собираются через JMX Exporter и отображаются в Grafana.
 
